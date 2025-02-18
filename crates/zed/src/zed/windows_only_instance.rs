@@ -9,10 +9,10 @@ use windows::{
 
 fn retrieve_app_instance_event_identifier() -> &'static str {
     match *release_channel::RELEASE_CHANNEL {
-        ReleaseChannel::Dev => "Local\\Zed-Editor-Dev-Instance-Mutex",
-        ReleaseChannel::Nightly => "Local\\Zed-Editor-Nightly-Instance-Mutex",
-        ReleaseChannel::Preview => "Local\\Zed-Editor-Preview-Instance-Mutex",
-        ReleaseChannel::Stable => "Local\\Zed-Editor-Stable-Instance-Mutex",
+        ReleaseChannel::Dev => "Zed-Editor-Dev-Instance-Mutex",
+        ReleaseChannel::Nightly => "Zed-Editor-Nightly-Instance-Mutex",
+        ReleaseChannel::Preview => "Zed-Editor-Preview-Instance-Mutex",
+        ReleaseChannel::Stable => "Zed-Editor-Stable-Instance-Mutex",
     }
 }
 
