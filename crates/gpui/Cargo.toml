@@ -22,7 +22,14 @@ test-support = [
     "x11",
 ]
 runtime_shaders = []
-macos-blade = ["blade-graphics", "blade-macros", "blade-util", "bytemuck", "objc2", "objc2-metal"]
+macos-blade = [
+    "blade-graphics",
+    "blade-macros",
+    "blade-util",
+    "bytemuck",
+    "objc2",
+    "objc2-metal",
+]
 wayland = [
     "blade-graphics",
     "blade-macros",
@@ -196,7 +203,7 @@ blade-macros.workspace = true
 flume = "0.11"
 rand.workspace = true
 windows.workspace = true
-windows-core = "0.58"
+windows-core.workspace = true
 
 [dev-dependencies]
 backtrace = "0.3"
