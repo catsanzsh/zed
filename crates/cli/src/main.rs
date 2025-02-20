@@ -534,16 +534,17 @@ mod flatpak {
 // todo("windows")
 #[cfg(target_os = "windows")]
 mod windows {
+    use anyhow::Context;
     use release_channel::ReleaseChannel;
     use windows::core::HSTRING;
-    use windows::Win32::Foundation::GENERIC_WRITE;
+    use windows::Win32::Foundation::{CloseHandle, GENERIC_WRITE};
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_MODE, OPEN_EXISTING,
     };
 
     use crate::{Detect, InstalledApp};
     use std::io;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::process::ExitStatus;
 
     #[inline]
@@ -566,7 +567,8 @@ mod windows {
         HSTRING::from(format!("{}{}-{}", prefix, retrieve_app_identifier(), name))
     }
 
-    struct App;
+    struct App(PathBuf);
+
     impl InstalledApp for App {
         fn zed_version_string(&self) -> String {
             format!(
@@ -581,7 +583,7 @@ mod windows {
                     Some(commit_sha) => format!(" {commit_sha} "),
                     None => "".to_string(),
                 },
-                "self.0.display()",
+                self.0.display(),
             )
         }
 
@@ -599,7 +601,7 @@ mod windows {
                 let message = ipc_url.as_bytes();
                 let mut bytes_written = 0;
                 WriteFile(pipe, Some(message), Some(&mut bytes_written), None)?;
-                println!("Wrote {} bytes to the pipe", bytes_written);
+                CloseHandle(pipe)?;
             }
             Ok(())
         }
@@ -610,8 +612,17 @@ mod windows {
     }
 
     impl Detect {
-        pub fn detect(_path: Option<&Path>) -> anyhow::Result<impl InstalledApp> {
-            Ok(App)
+        pub fn detect(path: Option<&Path>) -> anyhow::Result<impl InstalledApp> {
+            let path_buf = if let Some(path) = path {
+                path.canonicalize()?.to_path_buf()
+            } else {
+                let current = std::env::current_exe()?;
+                current
+                    .parent()
+                    .context("No parent path for cli")?
+                    .join("Zed.exe")
+            };
+            Ok(App(path_buf))
         }
     }
 }
