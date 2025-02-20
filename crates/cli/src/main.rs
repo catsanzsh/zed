@@ -524,19 +524,77 @@ mod flatpak {
 // todo("windows")
 #[cfg(target_os = "windows")]
 mod windows {
+    use release_channel::ReleaseChannel;
+    use windows::core::HSTRING;
+    use windows::Win32::Foundation::GENERIC_WRITE;
+    use windows::Win32::Storage::FileSystem::{
+        CreateFileW, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_MODE, OPEN_EXISTING,
+    };
+    use windows::Win32::System::Threading::{OpenEventW, SetEvent, EVENT_MODIFY_STATE};
+
     use crate::{Detect, InstalledApp};
     use std::io;
     use std::path::Path;
     use std::process::ExitStatus;
 
+    #[inline]
+    fn retrieve_app_identifier() -> &'static str {
+        match *release_channel::RELEASE_CHANNEL {
+            ReleaseChannel::Dev => "Zed-Editor-Dev",
+            ReleaseChannel::Nightly => "Zed-Editor-Nightly",
+            ReleaseChannel::Preview => "Zed-Editor-Preview",
+            ReleaseChannel::Stable => "Zed-Editor-Stable",
+        }
+    }
+
+    #[inline]
+    fn generate_identifier(name: &str) -> HSTRING {
+        HSTRING::from(format!("{}-{}", retrieve_app_identifier(), name))
+    }
+
+    #[inline]
+    fn generate_identifier_with_prefix(prefix: &str, name: &str) -> HSTRING {
+        HSTRING::from(format!("{}{}-{}", prefix, retrieve_app_identifier(), name))
+    }
+
     struct App;
     impl InstalledApp for App {
         fn zed_version_string(&self) -> String {
-            unimplemented!()
+            format!(
+                "Zed {}{}{} – {}",
+                if *release_channel::RELEASE_CHANNEL == release_channel::ReleaseChannel::Stable {
+                    "".to_string()
+                } else {
+                    format!("{} ", *release_channel::RELEASE_CHANNEL_NAME)
+                },
+                option_env!("RELEASE_VERSION").unwrap_or_default(),
+                match option_env!("ZED_COMMIT_SHA") {
+                    Some(commit_sha) => format!(" {commit_sha} "),
+                    None => "".to_string(),
+                },
+                "self.0.display()",
+            )
         }
-        fn launch(&self, _ipc_url: String) -> anyhow::Result<()> {
-            unimplemented!()
+
+        fn launch(&self, ipc_url: String) -> anyhow::Result<()> {
+            unsafe {
+                let pipe = CreateFileW(
+                    &generate_identifier_with_prefix("\\\\.\\pipe\\", "Named-Pipe"),
+                    GENERIC_WRITE.0,
+                    FILE_SHARE_MODE::default(),
+                    None,
+                    OPEN_EXISTING,
+                    FILE_FLAGS_AND_ATTRIBUTES::default(),
+                    None,
+                )?;
+                let message = ipc_url.as_bytes();
+                let mut bytes_written = 0;
+                WriteFile(pipe, Some(message), Some(&mut bytes_written), None)?;
+                println!("Wrote {} bytes to the pipe", bytes_written);
+            }
+            Ok(())
         }
+
         fn run_foreground(&self, _ipc_url: String) -> io::Result<ExitStatus> {
             unimplemented!()
         }
