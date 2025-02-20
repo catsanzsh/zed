@@ -7,13 +7,18 @@ use windows::{
     },
 };
 
-fn retrieve_app_instance_event_identifier() -> &'static str {
+fn retrieve_app_identifier() -> &'static str {
     match *release_channel::RELEASE_CHANNEL {
-        ReleaseChannel::Dev => "Zed-Editor-Dev-Instance-Mutex",
-        ReleaseChannel::Nightly => "Zed-Editor-Nightly-Instance-Mutex",
-        ReleaseChannel::Preview => "Zed-Editor-Preview-Instance-Mutex",
-        ReleaseChannel::Stable => "Zed-Editor-Stable-Instance-Mutex",
+        ReleaseChannel::Dev => "Zed-Editor-Dev",
+        ReleaseChannel::Nightly => "Zed-Editor-Nightly",
+        ReleaseChannel::Preview => "Zed-Editor-Preview",
+        ReleaseChannel::Stable => "Zed-Editor-Stable",
     }
+}
+
+#[inline]
+fn retrieve_app_instance_event_identifier() -> String {
+    format!("{}-Instance-Mutex", retrieve_app_identifier())
 }
 
 pub fn check_single_instance() -> bool {
