@@ -1,8 +1,10 @@
+use anyhow::Context;
 use release_channel::ReleaseChannel;
+use util::ResultExt;
 use windows::{
     core::HSTRING,
     Win32::{
-        Foundation::{GetLastError, ERROR_ALREADY_EXISTS},
+        Foundation::{GetLastError, ERROR_ALREADY_EXISTS, HANDLE},
         Storage::FileSystem::{ReadFile, PIPE_ACCESS_INBOUND},
         System::{
             Pipes::{
@@ -13,6 +15,8 @@ use windows::{
         },
     },
 };
+
+use crate::OpenListener;
 
 #[inline]
 fn retrieve_app_identifier() -> &'static str {
@@ -34,7 +38,7 @@ fn generate_identifier_with_prefix(prefix: &str, name: &str) -> HSTRING {
     HSTRING::from(format!("{}{}-{}", prefix, retrieve_app_identifier(), name))
 }
 
-pub fn check_single_instance() -> bool {
+pub fn check_single_instance(opener: OpenListener) -> bool {
     unsafe {
         CreateMutexW(None, false, &generate_identifier("Instance-Mutex"))
             .expect("Unable to create instance sync mutex")
@@ -45,7 +49,7 @@ pub fn check_single_instance() -> bool {
     if ret {
         // We are the first instance
         std::thread::spawn(move || {
-            with_pipe(|urls| println!("Received URLs: {}", urls));
+            with_pipe(|url| opener.open_urls(vec![url]));
         });
     }
 
@@ -53,7 +57,7 @@ pub fn check_single_instance() -> bool {
 }
 
 fn with_pipe(f: impl Fn(String)) {
-    let handle = unsafe {
+    let pipe = unsafe {
         CreateNamedPipeW(
             &generate_identifier_with_prefix("\\\\.\\pipe\\", "Named-Pipe"),
             PIPE_ACCESS_INBOUND,
@@ -65,16 +69,35 @@ fn with_pipe(f: impl Fn(String)) {
             None,
         )
     };
-    assert!(!handle.is_invalid());
+    if pipe.is_invalid() {
+        log::error!("Failed to create named pipe: {:?}", unsafe {
+            GetLastError()
+        });
+        return;
+    }
 
     loop {
-        unsafe { ConnectNamedPipe(handle, None).unwrap() };
-        let mut buffer = [0u8; 128];
-        unsafe {
-            ReadFile(handle, Some(&mut buffer), None, None).unwrap();
+        if let Some(message) = retrieve_message_from_pipe(pipe)
+            .context("Failed to read from named pipe")
+            .log_err()
+        {
+            f(message);
         }
-        let message = String::from_utf8_lossy(&buffer).to_string();
-        unsafe { DisconnectNamedPipe(handle).unwrap() };
-        f(message);
     }
+}
+
+fn retrieve_message_from_pipe(pipe: HANDLE) -> anyhow::Result<String> {
+    unsafe { ConnectNamedPipe(pipe, None)? };
+    let message = retrieve_message_from_pipe_inner(pipe);
+    unsafe { DisconnectNamedPipe(pipe).log_err() };
+    message
+}
+
+fn retrieve_message_from_pipe_inner(pipe: HANDLE) -> anyhow::Result<String> {
+    let mut buffer = [0u8; 128];
+    unsafe {
+        ReadFile(pipe, Some(&mut buffer), None, None)?;
+    }
+    let message = std::ffi::CStr::from_bytes_until_nul(&buffer)?;
+    Ok(message.to_string_lossy().to_string())
 }
