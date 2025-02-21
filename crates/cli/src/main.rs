@@ -281,7 +281,12 @@ fn main() -> Result<()> {
         Ok(())
     });
 
-    if args.foreground {
+    #[cfg(not(target_os = "windows"))]
+    let run_foreground = args.foreground;
+    #[cfg(target_os = "windows")]
+    let run_foreground = windows::check_single_instance();
+    println!("run_foreground: {}", run_foreground);
+    if run_foreground {
         app.run_foreground(url)?;
     } else {
         app.launch(url)?;
@@ -537,15 +542,21 @@ mod windows {
     use anyhow::Context;
     use release_channel::ReleaseChannel;
     use windows::core::HSTRING;
-    use windows::Win32::Foundation::{CloseHandle, GENERIC_WRITE};
+    use windows::Win32::Foundation::{
+        CloseHandle, GetLastError, ERROR_ALREADY_EXISTS, GENERIC_WRITE, HANDLE,
+    };
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_MODE, OPEN_EXISTING,
     };
+    use windows::Win32::System::Threading::CreateMutexW;
 
     use crate::{Detect, InstalledApp};
+    use std::cell::OnceCell;
     use std::io;
+    use std::os::windows::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
     use std::process::ExitStatus;
+    use std::sync::OnceLock;
 
     #[inline]
     fn retrieve_app_identifier() -> &'static str {
@@ -565,6 +576,16 @@ mod windows {
     #[inline]
     fn generate_identifier_with_prefix(prefix: &str, name: &str) -> HSTRING {
         HSTRING::from(format!("{}{}-{}", prefix, retrieve_app_identifier(), name))
+    }
+
+    pub(super) fn check_single_instance() -> bool {
+        let handle = unsafe {
+            CreateMutexW(None, false, &generate_identifier("Instance-Mutex"))
+                .expect("Unable to create instance sync mutex")
+        };
+        let last_err = unsafe { GetLastError() };
+        let _ = unsafe { CloseHandle(handle) };
+        last_err != ERROR_ALREADY_EXISTS
     }
 
     struct App(PathBuf);
@@ -606,8 +627,15 @@ mod windows {
             Ok(())
         }
 
-        fn run_foreground(&self, _ipc_url: String) -> io::Result<ExitStatus> {
-            unimplemented!()
+        fn run_foreground(&self, ipc_url: String) -> io::Result<ExitStatus> {
+            std::process::Command::new(self.0.clone())
+                .arg(ipc_url)
+                .spawn()?;
+            Ok(ExitStatus::from_raw(0))
+            // std::process::Command::new(self.0.clone())
+            //     .arg(ipc_url)
+            //     .spawn()?
+            //     .wait()
         }
     }
 
@@ -618,6 +646,8 @@ mod windows {
             } else {
                 let current = std::env::current_exe()?;
                 current
+                    .parent()
+                    .context("No parent path for cli")?
                     .parent()
                     .context("No parent path for cli")?
                     .join("Zed.exe")
