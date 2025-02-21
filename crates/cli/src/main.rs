@@ -281,12 +281,7 @@ fn main() -> Result<()> {
         Ok(())
     });
 
-    #[cfg(not(target_os = "windows"))]
-    let run_foreground = args.foreground;
-    #[cfg(target_os = "windows")]
-    let run_foreground = windows::check_single_instance();
-    println!("run_foreground: {}", run_foreground);
-    if run_foreground {
+    if args.foreground {
         app.run_foreground(url)?;
     } else {
         app.launch(url)?;
@@ -536,7 +531,6 @@ mod flatpak {
     }
 }
 
-// todo("windows")
 #[cfg(target_os = "windows")]
 mod windows {
     use anyhow::Context;
@@ -551,12 +545,9 @@ mod windows {
     use windows::Win32::System::Threading::CreateMutexW;
 
     use crate::{Detect, InstalledApp};
-    use std::cell::OnceCell;
     use std::io;
-    use std::os::windows::process::ExitStatusExt;
     use std::path::{Path, PathBuf};
     use std::process::ExitStatus;
-    use std::sync::OnceLock;
 
     #[inline]
     fn retrieve_app_identifier() -> &'static str {
@@ -578,7 +569,7 @@ mod windows {
         HSTRING::from(format!("{}{}-{}", prefix, retrieve_app_identifier(), name))
     }
 
-    pub(super) fn check_single_instance() -> bool {
+    fn check_single_instance() -> bool {
         let handle = unsafe {
             CreateMutexW(None, false, &generate_identifier("Instance-Mutex"))
                 .expect("Unable to create instance sync mutex")
@@ -609,20 +600,26 @@ mod windows {
         }
 
         fn launch(&self, ipc_url: String) -> anyhow::Result<()> {
-            unsafe {
-                let pipe = CreateFileW(
-                    &generate_identifier_with_prefix("\\\\.\\pipe\\", "Named-Pipe"),
-                    GENERIC_WRITE.0,
-                    FILE_SHARE_MODE::default(),
-                    None,
-                    OPEN_EXISTING,
-                    FILE_FLAGS_AND_ATTRIBUTES::default(),
-                    None,
-                )?;
-                let message = ipc_url.as_bytes();
-                let mut bytes_written = 0;
-                WriteFile(pipe, Some(message), Some(&mut bytes_written), None)?;
-                CloseHandle(pipe)?;
+            if check_single_instance() {
+                std::process::Command::new(self.0.clone())
+                    .arg(ipc_url)
+                    .spawn()?;
+            } else {
+                unsafe {
+                    let pipe = CreateFileW(
+                        &generate_identifier_with_prefix("\\\\.\\pipe\\", "Named-Pipe"),
+                        GENERIC_WRITE.0,
+                        FILE_SHARE_MODE::default(),
+                        None,
+                        OPEN_EXISTING,
+                        FILE_FLAGS_AND_ATTRIBUTES::default(),
+                        None,
+                    )?;
+                    let message = ipc_url.as_bytes();
+                    let mut bytes_written = 0;
+                    WriteFile(pipe, Some(message), Some(&mut bytes_written), None)?;
+                    CloseHandle(pipe)?;
+                }
             }
             Ok(())
         }
@@ -630,12 +627,8 @@ mod windows {
         fn run_foreground(&self, ipc_url: String) -> io::Result<ExitStatus> {
             std::process::Command::new(self.0.clone())
                 .arg(ipc_url)
-                .spawn()?;
-            Ok(ExitStatus::from_raw(0))
-            // std::process::Command::new(self.0.clone())
-            //     .arg(ipc_url)
-            //     .spawn()?
-            //     .wait()
+                .spawn()?
+                .wait()
         }
     }
 

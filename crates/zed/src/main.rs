@@ -168,6 +168,13 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
 }
 
 fn main() {
+    #[cfg(all(not(debug_assertions), target_os = "windows"))]
+    unsafe {
+        use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+
     menu::init();
     zed_actions::init();
 
